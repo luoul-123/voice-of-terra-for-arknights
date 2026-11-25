@@ -258,11 +258,17 @@ def synthesize(ident, text, version=None, preview=False, mode="reference", speak
         if not published: raise ValueError("该角色尚未发布音色")
         if version != published["version"]: raise ValueError("音色已更新，请刷新后重试")
         models = published["models"]; reference = published["reference"]; identity = version
-    return render_reference(ident,text,models,reference,identity,c.get("language","zh"))
+    return render_reference(ident,text,models,reference,identity,c.get("language","zh"),c.get("speed_factor",1.0))
 
-def render_reference(ident,text,models,reference,identity,language="zh"):
+def render_reference(ident,text,models,reference,identity,language="zh",speed_factor=1.0):
     global LOADED
-    digest = hashlib.sha256(json.dumps([ident, identity, text, reference], sort_keys=True).encode()).hexdigest()
+    speed_factor = float(speed_factor)
+    if not 0.5 <= speed_factor <= 2.0:
+        raise ValueError("合成语速须为 0.5–2.0")
+    cache_key = [ident, identity, text, reference]
+    if speed_factor != 1.0:
+        cache_key.append({"speed_factor":speed_factor})
+    digest = hashlib.sha256(json.dumps(cache_key, sort_keys=True).encode()).hexdigest()
     target = DATA / "audio" / (digest+".wav")
     target.parent.mkdir(exist_ok=True)
     if target.exists(): return target.read_bytes()
@@ -274,7 +280,7 @@ def render_reference(ident,text,models,reference,identity,language="zh"):
             engine_request("/set_gpt_weights", {"weights_path": models["gpt"]})
             engine_request("/set_sovits_weights", {"weights_path": models["sovits"]})
             LOADED = models
-        sound = engine_request("/tts", {"text": text, "text_lang": "zh", "ref_audio_path": reference["path"], "prompt_text": reference["text"], "prompt_lang": language, "text_split_method": "cut5", "media_type": "wav", "streaming_mode": False})
+        sound = engine_request("/tts", {"text": text, "text_lang": "zh", "ref_audio_path": reference["path"], "prompt_text": reference["text"], "prompt_lang": language, "text_split_method": "cut5", "media_type": "wav", "streaming_mode": False, "speed_factor": speed_factor})
         if not (sound.startswith(b"RIFF") and sound[8:12] == b"WAVE"): raise RuntimeError("引擎没有返回有效音频")
         temporary = target.with_suffix(".tmp"); temporary.write_bytes(sound); temporary.replace(target)
         return sound
